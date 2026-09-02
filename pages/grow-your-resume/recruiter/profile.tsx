@@ -6,7 +6,7 @@ import Link from "next/link";
 import { LogOut, Save, Edit, X } from "lucide-react";
 import { NavLogo } from "../../../components/navbar/NavLogo";
 import { useRouter } from "next/router";
-import { recruitersAPI } from "../../../lib/api";
+import { recruitersAPI, usersAPI } from "../../../lib/api";
 import { getRecruiterId, getStoredUser } from "../../../lib/auth";
 import { toast } from "react-hot-toast";
 import { UserWithRoles } from "../../../lib/types";
@@ -29,8 +29,6 @@ const ProfilePage = () => {
 
     const router = useRouter();
     const { edit } = router.query;
-
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
     useEffect(() => {
         loadProfile();
@@ -71,8 +69,7 @@ const ProfilePage = () => {
                     return;
                 }
                 const user = rawUser as UserWithRoles;
-                const response = await fetch(`${BACKEND_URL}/users/getid/${user.id}`);
-                const defaultUser = await response.json();
+                const defaultUser = await usersAPI.getProfile(user.id);
                 const profileData = {
                     companyName: "",
                     emailId: defaultUser.email,
