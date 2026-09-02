@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { LogOut } from "lucide-react";
 import { NavLogo } from "../../../components/navbar/NavLogo";
-import { postsAPI } from "../../../lib/api";
+import { postsAPI, recruitersAPI } from "../../../lib/api";
 import { getRecruiterId } from "../../../lib/auth";
 import { signOut } from "next-auth/react";
 import { toast } from "react-hot-toast";
@@ -42,7 +42,6 @@ const PostInternshipPage = () => {
         jobType: "REMOTE",
     });
     const [loading, setLoading] = useState(true);
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
 
     useEffect(() => {
         const loadRecruiterData = async () => {
@@ -54,19 +53,7 @@ const PostInternshipPage = () => {
                     return;
                 }
 
-                const response = await fetch(`${BACKEND_URL}/recruiters/getinfo/${recruiterId}`);
-                const data = await response.json();
-
-                if (!response.ok) {
-                    if (data.error === "RECRUITER_NOT_FOUND") {
-                        toast.error(data.message);
-                        await signOut({ redirect: false });
-                        router.push(data.redirectTo || "/grow-your-resume/login?tab=recruiter");
-                        return;
-                    } else {
-                        throw new Error(data.message || "Error loading recruiter");
-                    }
-                }
+                const data = await recruitersAPI.getProfile(recruiterId);
 
                 if (!data?.verified) {
                     router.push("/grow-your-resume/recruiter/profile");
@@ -74,7 +61,14 @@ const PostInternshipPage = () => {
 
                 setCurrentRecruiter(data);
                 setLoading(false);
-            } catch (error) {
+            } catch (error: any) {
+                if (error?.response?.data?.error === "RECRUITER_NOT_FOUND") {
+                    const errData = error.response.data;
+                    toast.error(errData.message);
+                    await signOut({ redirect: false });
+                    router.push(errData.redirectTo || "/grow-your-resume/login?tab=recruiter");
+                    return;
+                }
                 console.error("Failed to load recruiter data:", error);
                 toast.error("Failed to load recruiter profile");
                 setLoading(false);
@@ -135,16 +129,12 @@ const PostInternshipPage = () => {
                 applicationLink: formData.applicationLink,
             });
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.message || "Failed to post internship");
-            }
-
             toast.success("Internship posted successfully!");
             router.push("/grow-your-resume/recruiter/dashboard");
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error posting internship:", error);
-            toast.error("Error posting internship. Please try again.");
+            const message = error?.response?.data?.message || "Error posting internship. Please try again.";
+            toast.error(message);
         } finally {
             setIsSubmitting(false);
         }
