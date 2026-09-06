@@ -60,6 +60,7 @@ export interface Post {
   applicationLink?: string;
   applications?: Application[];
   applicationCount?:BigInteger;
+  _count?: { applications: number };
 }
 
 export interface Application {

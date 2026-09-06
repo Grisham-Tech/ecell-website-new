@@ -52,6 +52,11 @@ const RecruiterDashboard = () => {
     );
     const applications = appsResponse?.data || appsResponse || [];
 
+    const { data: allAppsResponse } = useSWR("/applications/recruiter", applicationsAPI.getForRecruiter);
+    const allApplications = allAppsResponse || [];
+
+    const displayApplications = selectedPosting ? applications : allApplications;
+
     useEffect(() => {
         loadRecruiterData();
     }, []);
@@ -322,7 +327,7 @@ const RecruiterDashboard = () => {
                                 My Postings ({postings.length})
                             </button>
                             <button onClick={() => handleTabChange("applications")} className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${activeTab === "applications" ? "border-[#f56a38] text-black" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-                                Applications ({applications.length})
+                                Applications ({allApplications.length})
                             </button>
                         </div>
 
@@ -345,10 +350,10 @@ const RecruiterDashboard = () => {
                                                 <div className="flex-1">
                                                     <div className="flex items-center mb-2">
                                                         <h3 className="text-xl font-bold text-gray-900 mr-3">{posting.jobTitle}</h3>
-                                                        {(posting.applications?.length ?? 0) > 0 && (
+                                                        {(posting._count?.applications ?? 0) > 0 && (
                                                             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-[#f56a38] text-white">
-                                                                {posting.applications?.length ?? 0} application
-                                                                {(posting.applications?.length ?? 0) !== 1 ? "s" : ""}
+                                                                {posting._count?.applications ?? 0} application
+                                                                {(posting._count?.applications ?? 0) !== 1 ? "s" : ""}
                                                             </span>
                                                         )}
                                                     </div>
@@ -383,7 +388,7 @@ const RecruiterDashboard = () => {
                                                 <div className="ml-6 flex flex-col space-y-2">
                                                     <button onClick={() => handleViewApplications(posting)} className="inline-flex items-center px-4 py-2 bg-[#f56a38] text-white rounded-lg hover:bg-[#e55a32] transition-colors">
                                                         <Eye className="w-4 h-4 mr-2" />
-                                                        View Applications ({posting.applications?.length ?? 0})
+                                                        View Applications ({posting._count?.applications ?? 0})
                                                     </button>
                                                     <button onClick={() => handleEditPosting(posting)} className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
                                                         <Edit className="w-4 h-4 mr-2" />
@@ -429,7 +434,7 @@ const RecruiterDashboard = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
-                                                {applications.map((application: any) => (
+                                                {displayApplications.map((application: any) => (
                                                     <tr key={application.id} className="hover:bg-gray-50">
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{application.post.jobTitle}</td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -477,7 +482,7 @@ const RecruiterDashboard = () => {
                                         </table>
                                     </div>
 
-                                    {applications.length === 0 && (
+                                    {displayApplications.length === 0 && (
                                         <div className="p-12 text-center">
                                             <h3 className="text-xl font-semibold text-gray-900 mb-2">No applications yet</h3>
                                             <p className="text-gray-600">{selectedPosting ? "No applications received for this posting yet." : "No applications received yet."}</p>
