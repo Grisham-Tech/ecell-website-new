@@ -59,6 +59,7 @@ export interface Post {
   applicationMethod?: string;
   applicationLink?: string;
   applications?: Application[];
+  _count?: { applications: number };
   applicationCount?:BigInteger;
 }
 

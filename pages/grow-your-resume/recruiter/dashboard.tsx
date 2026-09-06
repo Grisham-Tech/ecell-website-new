@@ -8,10 +8,24 @@ import useSWR from "swr";
 import { NavLogo } from "../../../components/navbar/NavLogo";
 import { useRouter } from "next/navigation";
 import { postsAPI, applicationsAPI, recruitersAPI } from "../../../lib/api";
-import { getRecruiterId } from "../../../lib/auth";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import { toast } from "react-hot-toast";
 import { Recruiter, Post, Application, Student, JobType } from "../../../lib/types";
+
+// Shape rendered while the recruiter profile request is still in flight.
+const EMPTY_RECRUITER = {
+    id: "",
+    companyName: "",
+    websiteUrl: "",
+    address: "",
+    phoneNumber: "",
+    verified: false,
+};
+
+// GET /posts/recruiter returns `_count.applications`, not a full `applications`
+// array, so read the count from there and fall back for any other shape.
+const applicationCount = (posting: any) =>
+    posting?._count?.applications ?? posting?.applications?.length ?? 0;
 
 const RecruiterDashboard = () => {
     const [activeTab, setActiveTab] = useState("postings");
@@ -20,28 +34,21 @@ const RecruiterDashboard = () => {
     const [showStudentModal, setShowStudentModal] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [editingPosting, setEditingPosting] = useState<Post | null>(null);
-    const [currentRecruiter, setCurrentRecruiter] = useState({
-        id: "",
-        companyName: "",
-        jobTitle: "",
-        jobDescription: "",
-        qualification: "",
-        experience: "",
-        stipend: "",
-        requiredSkills: "",
-        location: "",
-        jobType: "REMOTE",
-        verified: false,
-    });
-    const [error, setError] = useState<string | null>(null);
-    const [isLoadingRecruiter, setIsLoadingRecruiter] = useState(true);
-
-    const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL;
-
     const router = useRouter();
+    const { data: session, status: sessionStatus } = useSession();
+    const userId = (session?.user as any)?.id as string | undefined;
+
+    // The recruiter profile and the recruiter's posts are independent requests,
+    // so they fire in parallel. /posts/recruiter resolves the recruiter from the
+    // JWT server-side — gating its SWR key on the profile response used to
+    // serialise the two calls and roughly doubled time-to-content.
+    const { data: recruiterData, isLoading: isRecruiterLoading, error: recruiterError } = useSWR(
+        userId ? `/recruiters/getinfo/${userId}` : null,
+        () => recruitersAPI.getProfile(userId)
+    );
 
     const { data: postsResponse, isLoading: isPostsLoading, mutate: mutatePosts, error: postsError } = useSWR(
-        currentRecruiter.id ? "/posts/recruiter" : null,
+        "/posts/recruiter",
         postsAPI.getForRecruiter
     );
     const postings = postsResponse?.data || postsResponse || [];
@@ -52,39 +59,33 @@ const RecruiterDashboard = () => {
     );
     const applications = appsResponse?.data || appsResponse || [];
 
+    const currentRecruiter: any = recruiterData ?? EMPTY_RECRUITER;
+
+    // No session, or a session with no user id — bounce to the portal entry point.
     useEffect(() => {
-        loadRecruiterData();
-    }, []);
-
-    const loadRecruiterData = async () => {
-        try {
-            const recruiterId = await getRecruiterId();
-            if (!recruiterId) {
-                console.error("No recruiter ID found");
-                toast.error("Login to access");
-                router.push("/grow-your-resume");
-                return null;
-            }
-
-            const data = await recruitersAPI.getProfile(recruiterId);
-
-            setCurrentRecruiter(data); // still set it in state for other components
-            // console.log(data);
-
-            const isComplete = data?.companyName && data?.websiteUrl;
-            if (!isComplete) {
-                router.push("/grow-your-resume/recruiter/profile?edit=true");
-            }
-
-            return data; // return recruiter object
-        } catch (error) {
-            console.error("Error loading recruiter data:", error);
-            toast.error("Failed to load recruiter profile");
-            return null;
-        } finally {
-            setIsLoadingRecruiter(false);
+        if (sessionStatus === "loading") return;
+        if (!userId) {
+            toast.error("Login to access");
+            router.push("/grow-your-resume");
         }
-    };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sessionStatus, userId]);
+
+    // Profile loaded but incomplete — make them finish it before the dashboard.
+    useEffect(() => {
+        if (!recruiterData) return;
+        if (!(recruiterData.companyName && recruiterData.websiteUrl)) {
+            router.push("/grow-your-resume/recruiter/profile?edit=true");
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [recruiterData]);
+
+    useEffect(() => {
+        if (recruiterError) {
+            console.error("Error loading recruiter data:", recruiterError);
+            toast.error("Failed to load recruiter profile");
+        }
+    }, [recruiterError]);
 
 
     const handleApplicationAction = async (applicationId: any, action: any) => {
@@ -165,18 +166,10 @@ const RecruiterDashboard = () => {
         }
     }
 
-    if (isLoadingRecruiter) {
-        return (
-            <div className="min-h-screen bg-white flex items-center justify-center">
-                <div className="text-center">
-                    <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-[#f56a38] mx-auto"></div>
-                    <p className="mt-4 text-gray-600">Loading dashboard...</p>
-                </div>
-            </div>
-        );
-    }
-
-    if (isPostsLoading) {
+    // Only the recruiter profile gates the page — it decides the verified/
+    // unverified branch below. Posts load in the background and render their own
+    // skeleton, so the shell paints as soon as the profile lands.
+    if (sessionStatus === "loading" || isRecruiterLoading || (!recruiterData && !recruiterError)) {
         return (
             <div className="min-h-screen bg-white flex items-center justify-center">
                 <div className="text-center">
@@ -243,25 +236,6 @@ const RecruiterDashboard = () => {
         );
     }
 
-    if (postsError) {
-        return (
-            <div className="min-h-screen bg-white flex items-center justify-center">
-                <div className="text-center">
-                    <div className="text-red-500 mb-4">
-                        <X className="w-16 h-16 mx-auto" />
-                    </div>
-                    <h3 className="text-xl font-semibold text-gray-900 mb-2">Error Loading Dashboard</h3>
-                    <p className="text-gray-600 mb-4">{postsError?.message || "Failed to load"}</p>
-                    <button
-                        onClick={() => mutatePosts()}
-                        className="px-4 py-2 bg-[#f56a38] text-white rounded-lg hover:bg-[#e55a32] transition-colors"
-                    >
-                        Try Again
-                    </button>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <>
@@ -319,7 +293,7 @@ const RecruiterDashboard = () => {
                                 }}
                                 className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${activeTab === "postings" ? "border-[#f56a38] text-black" : "border-transparent text-gray-500 hover:text-gray-700"}`}
                             >
-                                My Postings ({postings.length})
+                                My Postings{isPostsLoading ? "" : ` (${postings.length})`}
                             </button>
                             <button onClick={() => handleTabChange("applications")} className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${activeTab === "applications" ? "border-[#f56a38] text-black" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
                                 Applications ({applications.length})
@@ -329,7 +303,32 @@ const RecruiterDashboard = () => {
                         {/* My Postings Tab */}
                         {activeTab === "postings" && (
                             <div className="space-y-6">
-                                {postings.length === 0 ? (
+                                {isPostsLoading ? (
+                                    <>
+                                        {[0, 1, 2].map((i) => (
+                                            <div key={i} className="bg-white border border-gray-200 rounded-lg p-6 animate-pulse">
+                                                <div className="h-6 w-1/3 bg-gray-200 rounded mb-4"></div>
+                                                <div className="h-4 w-1/2 bg-gray-200 rounded mb-2"></div>
+                                                <div className="h-4 w-1/4 bg-gray-200 rounded mb-2"></div>
+                                                <div className="h-4 w-1/3 bg-gray-200 rounded"></div>
+                                            </div>
+                                        ))}
+                                    </>
+                                ) : postsError ? (
+                                    <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
+                                        <div className="text-red-500 mb-4">
+                                            <X className="w-12 h-12 mx-auto" />
+                                        </div>
+                                        <h3 className="text-xl font-semibold text-gray-900 mb-2">Couldn&apos;t load your postings</h3>
+                                        <p className="text-gray-600 mb-6">{postsError?.message || "Failed to load"}</p>
+                                        <button
+                                            onClick={() => mutatePosts()}
+                                            className="px-4 py-2 bg-[#f56a38] text-white rounded-lg hover:bg-[#e55a32] transition-colors"
+                                        >
+                                            Try Again
+                                        </button>
+                                    </div>
+                                ) : postings.length === 0 ? (
                                     <div className="bg-white border border-gray-200 rounded-lg p-12 text-center">
                                         <h3 className="text-xl font-semibold text-gray-900 mb-2">No postings yet</h3>
                                         <p className="text-gray-600 mb-6">Create your first internship posting to get started.</p>
@@ -345,10 +344,10 @@ const RecruiterDashboard = () => {
                                                 <div className="flex-1">
                                                     <div className="flex items-center mb-2">
                                                         <h3 className="text-xl font-bold text-gray-900 mr-3">{posting.jobTitle}</h3>
-                                                        {(posting.applications?.length ?? 0) > 0 && (
+                                                        {applicationCount(posting) > 0 && (
                                                             <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-[#f56a38] text-white">
-                                                                {posting.applications?.length ?? 0} application
-                                                                {(posting.applications?.length ?? 0) !== 1 ? "s" : ""}
+                                                                {applicationCount(posting)} application
+                                                                {applicationCount(posting) !== 1 ? "s" : ""}
                                                             </span>
                                                         )}
                                                     </div>
@@ -383,7 +382,7 @@ const RecruiterDashboard = () => {
                                                 <div className="ml-6 flex flex-col space-y-2">
                                                     <button onClick={() => handleViewApplications(posting)} className="inline-flex items-center px-4 py-2 bg-[#f56a38] text-white rounded-lg hover:bg-[#e55a32] transition-colors">
                                                         <Eye className="w-4 h-4 mr-2" />
-                                                        View Applications ({posting.applications?.length ?? 0})
+                                                        View Applications ({applicationCount(posting)})
                                                     </button>
                                                     <button onClick={() => handleEditPosting(posting)} className="inline-flex items-center px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors">
                                                         <Edit className="w-4 h-4 mr-2" />
