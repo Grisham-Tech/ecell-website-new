@@ -62,6 +62,11 @@ const RecruiterDashboard = () => {
     const currentRecruiter: any = recruiterData ?? EMPTY_RECRUITER;
 
     // No session, or a session with no user id — bounce to the portal entry point.
+    const { data: allAppsResponse } = useSWR("/applications/recruiter", applicationsAPI.getForRecruiter);
+    const allApplications = allAppsResponse || [];
+
+    const displayApplications = selectedPosting ? applications : allApplications;
+
     useEffect(() => {
         if (sessionStatus === "loading") return;
         if (!userId) {
@@ -296,7 +301,7 @@ const RecruiterDashboard = () => {
                                 My Postings{isPostsLoading ? "" : ` (${postings.length})`}
                             </button>
                             <button onClick={() => handleTabChange("applications")} className={`px-6 py-3 font-medium text-sm border-b-2 transition-colors ${activeTab === "applications" ? "border-[#f56a38] text-black" : "border-transparent text-gray-500 hover:text-gray-700"}`}>
-                                Applications ({applications.length})
+                                Applications ({allApplications.length})
                             </button>
                         </div>
 
@@ -428,7 +433,7 @@ const RecruiterDashboard = () => {
                                                 </tr>
                                             </thead>
                                             <tbody className="bg-white divide-y divide-gray-200">
-                                                {applications.map((application: any) => (
+                                                {displayApplications.map((application: any) => (
                                                     <tr key={application.id} className="hover:bg-gray-50">
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{application.post.jobTitle}</td>
                                                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -476,7 +481,7 @@ const RecruiterDashboard = () => {
                                         </table>
                                     </div>
 
-                                    {applications.length === 0 && (
+                                    {displayApplications.length === 0 && (
                                         <div className="p-12 text-center">
                                             <h3 className="text-xl font-semibold text-gray-900 mb-2">No applications yet</h3>
                                             <p className="text-gray-600">{selectedPosting ? "No applications received for this posting yet." : "No applications received yet."}</p>
